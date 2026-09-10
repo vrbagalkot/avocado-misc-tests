@@ -78,6 +78,24 @@ class DlparTests(Test):
         return ''
 
     @staticmethod
+    def get_hmc_from_mcproxy():
+        '''
+        Fallback: parse 'lssrc -ls mcproxy' for the HMC hostname when
+        'lsrsrc IBM.MCP HMCIPAddr' returns no IP address.
+        Looks for a line of the form:
+            Hostname: example.com
+        and returns the hostname string, or '' if not found.
+        '''
+        for line in process.system_output('lssrc -ls mcproxy',
+                                          ignore_status=True, shell=True,
+                                          sudo=True).decode("utf-8") \
+                                                    .splitlines():
+            match = re.match(r'\s*Hostname:\s*(\S+)', line)
+            if match:
+                return match.group(1)
+        return ''
+
+    @staticmethod
     def get_partition_name(component):
         '''
         get partition name from lparstat -i
@@ -123,7 +141,7 @@ class DlparTests(Test):
     def cpu_payload_data(max_value, curr_proc, step=1):
         index_list = []
         current_sum = curr_proc
-        index = 0
+        index = 0.0  # Changed to float to support fractional steps
 
         while True:
             # Calculate the next index value to add
@@ -146,8 +164,8 @@ class DlparTests(Test):
         to get random values rather than using the same list which is generated
         through cpu_payload_data for performing mix operations
         '''
-        # Calculate the sum of the given list
-        total_sum = sum(values)
+        # Calculate the sum of the given list and convert to int for dedicated CPU
+        total_sum = int(sum(values))
         random_values = []
         remaining_sum = total_sum
 
@@ -208,6 +226,10 @@ class DlparTests(Test):
         # Get HMC IP
         self.hmc_ip = wait.wait_for(
             lambda: self.get_mcp_component("HMCIPAddr"), timeout=30)
+        if not self.hmc_ip:
+            self.log.info("HMCIPAddr not found via lsrsrc IBM.MCP, "
+                          "falling back to lssrc -ls mcproxy for hostname")
+            self.hmc_ip = self.get_hmc_from_mcproxy()
 
         # Primary lpar details
         self.pri_partition = self.get_partition_name("Partition Name")
@@ -233,7 +255,8 @@ class DlparTests(Test):
             self.log.info("======list of cpu's to be added :%s======" %
                           self.cpu_payload)
             for cpu in self.cpu_payload:
-                rvalue = Ded_obj.add_ded_cpu(cpu)
+                # Convert to int for dedicated mode as HMC requires integer values
+                rvalue = Ded_obj.add_ded_cpu(int(cpu))
                 if rvalue == 1:
                     # gives output printed by the last DLPAR command that ran on the HMC
                     stdout = Ded_obj.cmd_result.stdout_text
@@ -272,7 +295,7 @@ class DlparTests(Test):
                 result = self.proc_units[i] / self.virtual_procs[i]
                 if 0.05 <= result <= 1:
                     Pu.append(self.proc_units[i])
-                    Vp.append(self.virtual_procs[i])
+                    Vp.append(int(self.virtual_procs[i]))
             self.data_payload_backup(Vp)
             self.data_payload_backup(Pu)
             # Add proc_units and  virtual_procs
@@ -308,7 +331,8 @@ class DlparTests(Test):
             cpupayload = eval(str(loaded_payload_data[0]))
             self.log.info("list of cpu's to be removed :%s" % cpupayload)
             for cpu in cpupayload:
-                rvalue = Ded_obj.rem_ded_cpu(cpu)
+                # Convert to int for dedicated mode as HMC requires integer values
+                rvalue = Ded_obj.rem_ded_cpu(int(cpu))
                 if rvalue == 1:
                     # gives output printed by the last DLPAR command that ran on the HMC
                     stdout = Ded_obj.cmd_result.stdout_text
@@ -332,7 +356,7 @@ class DlparTests(Test):
 
             # Iterate through the reversed lists
             for vp, pu in zip(Vp_reverse, Pu_reverse):
-                result = Sha_obj.remove_proc(Vp, '--procs')
+                result = Sha_obj.remove_proc(vp, '--procs')
                 if result == 1:
                     # gives output printed by the last DLPAR command that ran on the HMC
                     stdout = Sha_obj.cmd_result.stdout_text
@@ -366,7 +390,8 @@ class DlparTests(Test):
             cpu_mix.append(sum_of_allcpu)
             self.log.info("list of cpu's :%s" % cpu_mix)
             for cpu in cpu_mix:
-                rvalue = Ded_obj.add_ded_cpu(cpu)
+                # Convert to int for dedicated mode as HMC requires integer values
+                rvalue = Ded_obj.add_ded_cpu(int(cpu))
                 if rvalue == 1:
                     # gives output printed by the last DLPAR command that ran on the HMC
                     stdout = Ded_obj.cmd_result.stdout_text
@@ -375,7 +400,8 @@ class DlparTests(Test):
                     self.fail("CPU add Command failed please check the logs")
                 self.log.info(
                     "===============>%s cpus got added=======>\n " % cpu)
-                rvalue = Ded_obj.rem_ded_cpu(cpu)
+                # Convert to int for dedicated mode as HMC requires integer values
+                rvalue = Ded_obj.rem_ded_cpu(int(cpu))
                 if rvalue == 1:
                     # gives output printed by the last DLPAR command that ran on the HMC
                     stdout = Ded_obj.cmd_result.stdout_text
@@ -395,7 +421,7 @@ class DlparTests(Test):
             Pu = eval(str(loaded_payload_data[1]))
             # Iterate through the reversed lists
             for pu, vp in zip(Pu, Vp):
-                result = Sha_obj.add_proc(vp, '--procs')
+                result = Sha_obj.add_proc(int(vp), '--procs')
                 if result == 1:
                     # gives output printed by the last DLPAR command that ran on the HMC
                     stdout = Sha_obj.cmd_result.stdout_text
@@ -424,7 +450,7 @@ class DlparTests(Test):
                               please check the logs")
                 self.log.info(
                     "===============>%s procunits got removed=======>\n " % pu)
-                result = Sha_obj.remove_proc(vp, '--procs')
+                result = Sha_obj.remove_proc(int(vp), '--procs')
                 if result == 1:
                     # gives output printed by the last DLPAR command that ran on the HMC
                     stdout = Sha_obj.cmd_result.stdout_text

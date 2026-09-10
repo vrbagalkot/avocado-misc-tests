@@ -42,8 +42,12 @@ class kselftest(Test):
         match = re.search(match_str, line)
         if match:
             self.error = True
-            self.log.info("Testcase failed. Log from debug: %s" %
-                          match.group(0))
+            failed_test = match.group(0)
+            # Clean up the test name for better readability
+            failed_test = failed_test.strip()
+            if failed_test not in self.failed_tests:
+                self.failed_tests.append(failed_test)
+            self.log.info("Testcase failed. Log from debug: %s" % failed_test)
 
     def setUp(self):
         """
@@ -51,6 +55,8 @@ class kselftest(Test):
         """
         smg = SoftwareManager()
         self.comp = self.params.get('comp', default='')
+        self.kexec_symlink_created = False
+        self.kexec_kernel_version = None
         self.subtest = self.params.get('subtest', default='')
         if self.comp == "mm" and self.subtest == "ksm_tests":
             self.test_type = self.params.get('test_type', default='-H')
@@ -83,7 +89,8 @@ class kselftest(Test):
             deps.extend(['glibc', 'glibc-devel', 'popt-devel', 'sudo',
                          'libcap2', 'libcap-devel', 'libcap-ng-devel',
                          'fuse', 'fuse-devel', 'glibc-devel-static',
-                         'traceroute', 'iproute2', 'socat', 'libnuma-devel'])
+                         'traceroute', 'iproute2', 'socat', 'libnuma-devel',
+                         'coreutils'])
             if self.distro_ver >= 15:
                 deps.extend(['libhugetlbfs-devel'])
             else:
@@ -110,32 +117,50 @@ class kselftest(Test):
                 self.cancel(
                     "Fail to install %s package" % (package))
 
-        if self.run_type == 'upstream':
-            location = self.params.get('location', default='https://github.c'
-                                       'om/torvalds/linux/archive/master.zip')
-            if re.match(r'^https|^git', location):
-                git_branch = self.params.get('branch', default='master')
-                path = ''
-                match = next(
-                    (ext for ext in [".zip", ".tar", ".gz"] if ext in location), None)
-                if match:
-                    tarball = self.fetch_asset("kselftest%s" % match,
-                                               locations=[location], expire='1d')
-                    extracted_dir = archive.uncompress(tarball, self.workdir)
-                    path = glob.glob(os.path.join(self.workdir, extracted_dir))
-                else:
-                    git.get_repo(location, branch=git_branch,
-                                 destination_dir=self.workdir)
-                    path = glob.glob(self.workdir)
-                for l_dir in path:
-                    if os.path.isdir(l_dir) and 'Makefile' in os.listdir(l_dir):
-                        self.buldir = os.path.join(self.workdir, l_dir)
-                        break
-
-                self.sourcedir = os.path.join(self.buldir, self.testdir)
-                if (self.comp != "cpufreq" and self.comp != "bpf"):
-                    process.system("make headers -C %s" % self.buldir, shell=True,
-                                   sudo=True)
+        if self.run_type == 'custom' or self.run_type == 'upstream':
+            if self.run_type == 'custom':
+                linux_dir = self.params.get('linux_dir', default=None)
+                if not linux_dir or not os.path.exists(linux_dir):
+                    self.cancel(
+                        "Custom kernel source directory %s does not exist" % (linux_dir))
+                linux_dir = os.path.abspath(os.path.expanduser(linux_dir))
+                if not os.path.exists(os.path.join(linux_dir, "tools/testing/selftests")):
+                    self.cancel(
+                        "Custom kernel source directory %s is not a valid kernel source" % linux_dir)
+                if not os.path.exists(os.path.join(linux_dir, "Makefile")):
+                    self.cancel(
+                        "Custom kernel source directory %s lacks a Makefile" % linux_dir)
+                path = [linux_dir]
+            if self.run_type == 'upstream':
+                location = self.params.get('location', default='https://github.c'
+                                           'om/torvalds/linux/archive/master.zip')
+                if re.match(r'^https|^git', location):
+                    git_branch = self.params.get('branch', default='master')
+                    path = ''
+                    match = next(
+                        (ext for ext in [".zip", ".tar", ".gz"] if ext in location), None)
+                    if match:
+                        tarball = self.fetch_asset("kselftest%s" % match,
+                                                   locations=[location], expire='1d')
+                        extracted_dir = archive.uncompress(
+                            tarball, self.workdir)
+                        path = glob.glob(os.path.join(
+                            self.workdir, extracted_dir))
+                    else:
+                        git.get_repo(location, branch=git_branch,
+                                     destination_dir=self.workdir)
+                        path = glob.glob(self.workdir)
+            for l_dir in path:
+                if os.path.isdir(l_dir) and 'Makefile' in os.listdir(l_dir):
+                    self.buldir = os.path.join(self.workdir, l_dir)
+                    break
+            self.sourcedir = os.path.join(self.buldir, self.testdir)
+            if (self.comp != "cpufreq" and self.comp != "bpf"):
+                process.system("make headers -C %s" % self.buldir, shell=True,
+                               sudo=True)
+                # Only run 'make install' if no specific component is selected
+                # Component-specific builds will be done later in the build phase
+                if not self.comp:
                     process.system("make install -C %s" % self.sourcedir,
                                    shell=True, sudo=True)
             else:
@@ -179,24 +204,43 @@ class kselftest(Test):
             process.system("sed -i 's/^.*cmsg_time.sh/#&/g' %s" % make_path,
                            shell=True, sudo=True)
         if (self.comp != "cpufreq" and self.comp != "bpf"):
+            # Run make headers before building
+            process.system("make headers -C %s" % self.buldir, shell=True,
+                           sudo=True)
             if self.comp:
                 build_str = '-C %s' % self.comp
             if build.make(self.sourcedir, extra_args='%s' % build_str):
                 self.fail("Compilation failed, Please check the build logs !!")
+        # Fix for kexec test: Create vmlinuz symlink if only vmlinux exists
+        # This handles SUSE systems that use vmlinux instead of vmlinuz
+        if self.comp == "kexec":
+            kernel_version = platform.uname()[2]
+            vmlinuz_path = f"/boot/vmlinuz-{kernel_version}"
+            vmlinux_path = f"/boot/vmlinux-{kernel_version}"
+            if not os.path.exists(vmlinuz_path) and os.path.exists(vmlinux_path):
+                self.log.info(f"Creating symlink {vmlinuz_path} -> {vmlinux_path} for kexec test")
+                result = process.system(f"ln -sf {vmlinux_path} {vmlinuz_path}", shell=True, sudo=True, ignore_status=True)
+                if result == 0:
+                    self.kexec_symlink_created = True
+                    self.kexec_kernel_version = kernel_version
+                    self.log.info(f"Successfully created symlink for kernel version {kernel_version}")
 
     def test(self):
         """
         Execute the kernel selftest
         """
         self.error = False
+        self.failed_tests = []
         kself_args = self.params.get("kself_args", default='')
         if self.comp == "bpf":
             self.bpf()
-        if self.comp == "cpufreq":
+        elif self.comp == "cpufreq":
             self.cpufreq()
         else:
             if self.subtest == "ksm_tests":
                 self.ksmtest()
+            elif self.subtest == "mremap_test":
+                self.mremaptest()
             else:
                 if self.subtest:
                     test_comp = self.comp + "/" + self.subtest
@@ -204,23 +248,49 @@ class kselftest(Test):
                     test_comp = self.comp
                 make_cmd = 'make -C %s %s -C %s run_tests' % (
                     self.sourcedir, kself_args, test_comp)
-                self.result = process.run(make_cmd, shell=True, ignore_status=True)
+                self.result = process.run(
+                    make_cmd, shell=True, ignore_status=True)
         log_output = self.result.stdout.decode('utf-8')
         results_path = os.path.join(self.outputdir, 'raw_output')
         with open(results_path, 'w') as r_file:
             r_file.write(log_output)
         for line in open(results_path).readlines():
             if self.run_type == 'upstream':
+                # Match both overall test failures and individual test failures
                 self.find_match(r'not ok (.*) selftests:(.*)', line)
+                self.find_match(r'# not ok \d+ .* # exit=\d+', line)
             elif self.run_type == 'distro':
                 if self.detected_distro.name == 'SuSE' and\
                         self.distro_ver == 12:
                     self.find_match(r'selftests:(.*)\[FAIL\]', line)
                 else:
+                    # Match both overall test failures and individual test failures
                     self.find_match(r'not ok (.*) selftests:(.*)', line)
+                    self.find_match(r'# not ok \d+ .* # exit=\d+', line)
 
         if self.error:
-            self.fail("Testcase failed during selftests")
+            # Build the summary message
+            summary_lines = [
+                "",
+                "="*70,
+                "FAILED SELFTESTS SUMMARY:",
+                "="*70
+            ]
+            for idx, failed_test in enumerate(self.failed_tests, 1):
+                summary_lines.append(f"{idx}. {failed_test}")
+            summary_lines.extend([
+                "="*70,
+                f"Total failed tests: {len(self.failed_tests)}",
+                "="*70,
+                ""
+            ])
+
+            # Log the summary once in error log
+            summary_msg = "\n".join(summary_lines)
+            self.log.error(summary_msg)
+
+            # Fail with a concise message (detailed summary already logged above)
+            self.fail(f"Testcase failed during selftests. Total failed tests: {len(self.failed_tests)}")
 
     def run_cmd(self, cmd):
         """
@@ -257,6 +327,101 @@ class kselftest(Test):
             self.cancel("Invalid ksm_tests build path:- {}"
                         .format(ksm_test_dir))
 
+    def mremaptest(self):
+        """
+        Run mremap test and validate performance for the PMD-source aligned and 4MB cases.
+        Asserts that the src+dst PMD-aligned case is the fastest.
+        """
+        mremap_test_dir = os.path.join(self.sourcedir, "mm")
+        mremap_test_bin = os.path.join(mremap_test_dir, "mremap_test")
+        if not os.path.exists(mremap_test_bin):
+            self.cancel("mremap_test binary not found at: %s" % mremap_test_bin)
+        self.log.info("Running mremap_test from %s", mremap_test_dir)
+        os.chdir(mremap_test_dir)
+        try:
+            self.result = process.run('./mremap_test',
+                                      ignore_status=True,
+                                      sudo=True)
+        except process.CmdError as details:
+            self.fail("Command ./mremap_test failed: %s" % details)
+        output = self.result.stdout.decode('utf-8')
+        self.log.info("Test output:\n%s", output)
+        times = self.parse_mremap_times(output)
+        if not times:
+            self.log.warning("No 4MB PMD-source timing lines found in output")
+            if self.result.exit_status != 0:
+                self.fail("mremap_test failed with exit code: %d" % self.result.exit_status)
+            return
+        pmd_src_and_dest = {desc: ns for desc, ns in times.items()
+                            if 'Destination PMD-aligned' in desc}
+        pmd_src_only = {desc: ns for desc, ns in times.items()
+                        if 'Destination PMD-aligned' not in desc}
+        self.log.info("=" * 80)
+        self.log.info("4MB mremap cases with Source PMD-aligned:")
+        for desc, ns in sorted(times.items()):
+            self.log.info("  %s: %d ns", desc, ns)
+        self.log.info("=" * 80)
+        if not pmd_src_and_dest:
+            self.log.warning("'Source PMD-aligned, Destination PMD-aligned' 4MB case not found")
+            if self.result.exit_status != 0:
+                self.fail("mremap_test failed with exit code: %d" % self.result.exit_status)
+            return
+        time_pmd_both = min(pmd_src_and_dest.values())
+        failures = []
+        for desc, ns in pmd_src_only.items():
+            if ns < time_pmd_both:
+                msg = ("FAIL: '%s' (%d ns) is faster than "
+                       "'Source PMD-aligned, Destination PMD-aligned' (%d ns)"
+                       % (desc, ns, time_pmd_both))
+                self.log.error(msg)
+                failures.append(msg)
+        if failures:
+            self.log.error("=" * 80)
+            self.log.error("PERFORMANCE VALIDATION FAILED:")
+            self.log.error("For 4MB PMD-source mremap, the PMD+PMD case must be fastest!")
+            for failure in failures:
+                self.log.error("  - %s", failure)
+            self.log.error("=" * 80)
+            self.fail("Source+Dest PMD-aligned 4MB mremap is not the fastest. "
+                      "See failures above.")
+        else:
+            self.log.info("=" * 80)
+            self.log.info("SUCCESS: Source+Dest PMD-aligned 4MB mremap is fastest!")
+            self.log.info("  PMD+PMD time : %d ns", time_pmd_both)
+            if pmd_src_only:
+                min_src_only = min(pmd_src_only.values())
+                self.log.info("  Non-PMD-dest min time : %d ns", min_src_only)
+                if time_pmd_both > 0:
+                    self.log.info("  Performance improvement: %.2fx faster",
+                                  min_src_only / time_pmd_both)
+                else:
+                    self.log.warning("Cannot calculate improvement: PMD+PMD time is zero")
+            self.log.info("=" * 80)
+
+    def parse_mremap_times(self, output):
+        """
+        Parse mremap_test output and return timings for the
+        '4MB mremap - Source PMD-aligned' cases.
+        Returns dict: test description -> time_ns
+        """
+        times = {}
+        lines = output.split('\n')
+        for i, line in enumerate(lines):
+            if '4MB mremap - Source PMD-aligned' not in line:
+                continue
+            tap_match = re.search(r'^ok\s+\d+\s+(.+)', line)
+            if not tap_match:
+                continue
+            test_desc = tap_match.group(1).strip()
+            for next_line in lines[i + 1:i + 4]:
+                time_match = re.search(r'mremap time:\s+(\d+)ns', next_line)
+                if time_match:
+                    time_ns = int(time_match.group(1))
+                    times[test_desc] = time_ns
+                    self.log.info("Found: %s = %d ns", test_desc, time_ns)
+                    break
+        return times
+
     def bpf(self):
         """
         Execute the kernel bpf selftests
@@ -276,5 +441,14 @@ class kselftest(Test):
 
     def tearDown(self):
         self.log.info('Cleaning up')
+        # Only remove the symlink if we created it and we have the exact kernel version
+        if (getattr(self, 'kexec_symlink_created', False) and getattr(self, 'kexec_kernel_version', None) and self.comp == "kexec"):
+            vmlinuz_path = f"/boot/vmlinuz-{self.kexec_kernel_version}"
+            if os.path.islink(vmlinuz_path):
+                self.log.info(f"Removing kexec symlink {vmlinuz_path} for kernel version {self.kexec_kernel_version}")
+                process.system(f"rm -f {vmlinuz_path}",
+                               shell=True, sudo=True, ignore_status=True)
+            else:
+                self.log.warning(f"Symlink {vmlinuz_path} no longer exists or is not a symlink, skipping removal")
         if os.path.exists(self.workdir):
             shutil.rmtree(self.workdir)

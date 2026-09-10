@@ -1,6 +1,6 @@
-mem_leak: 0
+use_kirk: True
 general: !mux
-    runltp: !mux
+    kirk: !mux
         mm:
             args: '-f mm'
             overcommit: True
@@ -10,3 +10,5 @@ general: !mux
         thp-page-cache:
             args: '-f mm'
             tmpfs_mount_dir: '/mnt/thp/'
+        numa:
+            args: '-f numa'

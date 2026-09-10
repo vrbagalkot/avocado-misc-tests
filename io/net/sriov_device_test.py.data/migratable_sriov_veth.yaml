@@ -6,5 +6,6 @@ ipaddr: ""
 netmasks: ""
 peer_ips: ""
 mac_id: ""
-migratable: 1
+migratable: True
 backup_veth_vnetwork: ""
+num_of_dlpar: 

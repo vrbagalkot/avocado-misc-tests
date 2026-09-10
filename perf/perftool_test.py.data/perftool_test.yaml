@@ -4,3 +4,4 @@ run_type: !mux
     upstream:
         type: 'upstream'
         perf_path: "/home/upstreamci/linux/tools/perf"
+perf_bin: '/usr/local/perf'
