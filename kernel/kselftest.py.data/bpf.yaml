@@ -2,6 +2,6 @@ component: !mux
     bpf:
         comp: 'bpf'
 run_type: !mux
-    upstream:
-        type: 'upstream'
-        location: '/home/upstreamci/linux'
+    custom:
+        type: 'custom'
+        linux_dir: '/home/upstreamci/linux'
