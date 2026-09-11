@@ -3,7 +3,6 @@ component: !mux
         comp: 'ftrace'
 
 run_type: !mux
-    upstream:
-        type: 'upstream'
-        location: 'git://git.kernel.org/pub/scm/linux/kernel/git/powerpc/linux.git'
-        branch: 'merge'
+    custom:
+        type: 'custom'
+        linux_dir: '/home/upstreamci/linux'

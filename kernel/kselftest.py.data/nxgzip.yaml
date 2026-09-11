@@ -1,7 +1,7 @@
 run_type: !mux
-    upstream:
-        type: 'upstream'
-        location: 'https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git'
+    custom:
+        type: 'custom'
+        linux_dir: '/home/upstreamci/linux'
 component: !mux
     nx-gzip:
         comp: 'powerpc'
