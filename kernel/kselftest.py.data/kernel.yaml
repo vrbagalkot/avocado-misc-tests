@@ -11,6 +11,18 @@ component: !mux
         comp: 'powerpc'
         kself_args: 'summary=1'
         subtest: 'benchmarks'
+    cache_shape:
+        comp: 'powerpc'
+        kself_args: 'summary=1'
+        subtest: 'cache_shape'
+    copyloops:
+        comp: 'powerpc'
+        kself_args: 'summary=1'
+        subtest: 'copyloops'
+    dexcr:
+        comp: 'powerpc'
+        kself_args: 'summary=1'
+        subtest: 'dexcr'
     dscr:
         comp: 'powerpc'
         kself_args: 'summary=1'
@@ -23,14 +35,54 @@ component: !mux
         comp: 'powerpc'
         kself_args: 'summary=1'
         subtest: 'math'
+    mce:
+        comp: 'powerpc'
+        kself_args: 'summary=1'
+        subtest: 'mce'
+    mm:
+        comp: 'powerpc'
+        kself_args: 'summary=1'
+        subtest: 'mm'
+    nx-gzip:
+        comp: 'powerpc'
+        kself_args: 'summary=1'
+        subtest: 'nx-gzip'
+    papr_attributes:
+        comp: 'powerpc'
+        kself_args: 'summary=1'
+        subtest: 'papr_attributes'
+    papr_sysparm:
+        comp: 'powerpc'
+        kself_args: 'summary=1'
+        subtest: 'papr_sysparm'
+    papr_vpd:
+        comp: 'powerpc'
+        kself_args: 'summary=1'
+        subtest: 'papr_vpd'
     primitives:
         comp: 'powerpc'
         kself_args: 'summary=1'
         subtest: 'primitives'
+    pmu:
+        comp: 'powerpc'
+        kself_args: 'summary=1'
+        subtest: 'pmu'
+    ptrace:
+        comp: 'powerpc'
+        kself_args: 'summary=1'
+        subtest: 'ptrace'
+    security:
+        comp: 'powerpc'
+        kself_args: 'summary=1'
+        subtest: 'security'
     signal:
         comp: 'powerpc'
         kself_args: 'summary=1'
         subtest: 'signal'
+    stringloops:
+        comp: 'powerpc'
+        kself_args: 'summary=1'
+        subtest: 'stringloops'
     switch_endian:
         comp: 'powerpc'
         kself_args: 'summary=1'
@@ -43,19 +95,7 @@ component: !mux
         comp: 'powerpc'
         kself_args: 'summary=1'
         subtest: 'tm'
-    dexcr:
+    vphn:
         comp: 'powerpc'
         kself_args: 'summary=1'
-        subtest: 'dexcr'
-    mce:
-        comp: 'powerpc'
-        kself_args: 'summary=1'
-        subtest: 'mce'
-    papr_vpd:
-        comp: 'powerpc'
-        kself_args: 'summary=1'
-        subtest: 'papr_vpd'
-    papr_sysparm:
-        comp: 'powerpc'
-        kself_args: 'summary=1'
-        subtest: 'papr_sysparm'
+        subtest: 'vphn'
