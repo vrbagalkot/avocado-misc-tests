@@ -49,6 +49,13 @@ class LTP(Test):
     """
     failed_tests = list()
     mem_tests = ['-f mm', '-f hugetlb']
+    all_suites = [
+        'syscalls', 'mm', 'fs', 'fs_perms_simple', 'fsx', 'dio', 'io',
+        'ipc', 'sched', 'math', 'nptl', 'pty', 'filecaps', 'cap_bounds',
+        'fs_bind', 'fcntl-locktests', 'connectors', 'containers',
+        'power_management_tests', 'hyperthreading', 'controllers',
+        'hugetlb', 'numa',
+    ]
 
     def _get_cache_dir(self):
         """
@@ -389,6 +396,10 @@ class LTP(Test):
 
         if self.use_kirk:
             # Kirk runner execution path
+            if not self.args.strip():
+                self.log.info("No test suite specified, running all LTP suites")
+                self.args = " ".join(
+                    "--run-suite %s" % s for s in self.all_suites)
             self.args += (" -v -d %s -S %s"
                           % (self.teststmpdir, skipfilepath))
             self.kirkbin_path = os.path.join(self.ltpbin_dir, 'kirk')
