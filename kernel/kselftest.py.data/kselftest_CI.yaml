@@ -23,6 +23,6 @@ component: !mux
   kexec:
     comp: "kexec"
 run_type: !mux
-  upstream:
-    type: "upstream"
-    location: "https://github.com/torvalds/linux/archive/master.zip"
+  custom:
+    type: "custom"
+    linux_dir: "/home/upstreamci/linux"
